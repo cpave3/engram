@@ -1,0 +1,40 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Build the engram binary
+    cmds:
+      - go build -o engram ./cmd/engram/
+
+  install:
+    desc: Install engram to $GOPATH/bin
+    cmds:
+      - go install ./cmd/engram/
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./... -count=1
+
+  test:race:
+    desc: Run all tests with race detector
+    cmds:
+      - go test -race ./... -count=1
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  check:
+    desc: Build, test, vet, and lint
+    cmds:
+      - task: build
+      - task: test
+      - task: vet
+      - task: lint
