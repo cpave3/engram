@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,6 +59,46 @@ func (s *Store) AddMemory(identity string, m Memory) (Memory, error) {
 	}
 	name := m.Created.Format(dateLayout) + "-" + m.ID + ".md"
 	return m, writeFile(filepath.Join(dir, name), doc)
+}
+
+// Memory finds one memory by its exact id, including outside the current scope.
+func (s *Store) Memory(identity, id string) (Memory, error) {
+	files, err := s.MemoryFiles(identity)
+	if err != nil {
+		return Memory{}, err
+	}
+	for _, file := range files {
+		m, err := LoadMemory(file)
+		if err != nil {
+			return Memory{}, err
+		}
+		if m.ID == id {
+			return m, nil
+		}
+	}
+	return Memory{}, fmt.Errorf("memory %q: %w", id, ErrNotFound)
+}
+
+// EditMemory replaces the claim, preserving its id, path and metadata.
+func (s *Store) EditMemory(identity, id, body string) error {
+	m, err := s.Memory(identity, id)
+	if err != nil {
+		return err
+	}
+	doc, err := encodeDoc(m, body)
+	if err != nil {
+		return err
+	}
+	return writeFile(m.Path, doc)
+}
+
+// RemoveMemory permanently deletes one memory's source file.
+func (s *Store) RemoveMemory(identity, id string) error {
+	m, err := s.Memory(identity, id)
+	if err != nil {
+		return err
+	}
+	return os.Remove(m.Path)
 }
 
 // unusedID picks an id no record in dir already carries.

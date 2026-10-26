@@ -137,6 +137,8 @@ A session that ends without a handoff leaves only its last few notes.`,
 		summary: "keep one durable claim as a memory",
 		detail: `A memory is one claim that will still be true and useful in a later session.
 Write it to stand alone: say what, and where it applies. One claim each.
+Remember always creates a new memory; it never replaces an existing one.
+Use edit <id> to correct a memory's text, or remove <id> --yes to delete it.
 
 --kind says what sort of claim it is:
 ` + kindsHelp + `
@@ -174,6 +176,45 @@ flag of the same name. Nothing is saved unless every line is valid.`,
   remembered <id> · <kind> · here (<scope>)`,
 		acts: true,
 		run:  (*app).remember,
+	},
+	{
+		name:    "edit",
+		args:    `<id> "<claim>"`,
+		summary: "replace a memory's text, keeping its metadata",
+		detail: `Replaces one memory's entire claim, not a substring. Takes an exact memory
+id from recall, memories, show or boot, in any scope of the acting identity.
+The id, creation time, original session, kind, scope, source, tags and anchor
+are preserved. To change metadata, edit the file shown by engram show.
+Hand-written files gain explicit frontmatter containing their loaded defaults.
+
+Use --file <path> or --file - for multiline text. Empty claims are rejected.
+The old text is overwritten without keeping a revision. Recall refreshes its
+index on the next search. Concurrent edits to the same memory are last-writer
+wins; do not edit and remove the same memory concurrently.`,
+		flags: []flagDef{fileFlag("replacement claim")},
+		examples: []string{
+			`engram edit k3f9x2ab "The corrected claim." --as ada`,
+			"engram edit k3f9x2ab --file - --as ada <<'EOF'\nThe corrected claim.\nWith supporting detail.\nEOF",
+		},
+		prints: `edited <id>`,
+		acts:   true,
+		run:    (*app).edit,
+	},
+	{
+		name:    "remove",
+		args:    "<id>",
+		summary: "permanently delete one memory",
+		detail: `Deletes one memory's source file. Takes an exact memory id in any scope of
+the acting identity, not a thread id. Inspect it with engram show first.
+Requires --yes to confirm; without it, nothing is changed. There is no undo.
+Recall removes it from the index on the next search; memories and boot stop
+showing it immediately. Existing session notes and handoffs are not rewritten.
+Do not edit and remove the same memory concurrently.`,
+		flags:    []flagDef{{name: "yes", help: "confirm permanent deletion of this memory"}},
+		examples: []string{`engram show k3f9x2ab --as ada`, `engram remove k3f9x2ab --yes --as ada`},
+		prints:   `removed <id>`,
+		acts:     true,
+		run:      (*app).remove,
 	},
 	{
 		name:    "recall",

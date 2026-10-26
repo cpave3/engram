@@ -527,7 +527,7 @@ func TestParallelSessionsWriteAndSearchWithoutLosingAnything(t *testing.T) {
 var commandNames = []string{
 	"identity new", "identity list", "identity show",
 	"boot", "note", "handoff",
-	"remember", "recall", "memories", "show",
+	"remember", "recall", "memories", "show", "edit", "remove",
 	"thread open", "thread list", "thread close",
 	"self show", "self write",
 }
@@ -772,4 +772,248 @@ func TestManyMemoriesAreRememberedFromOneBatch(t *testing.T) {
 		t.Fatalf("unknown field: exit %d, want 2", code)
 	}
 	mustContain(t, stderr, "line 1", "text")
+}
+
+func TestBootIdentityCarriesToLaterCommands(t *testing.T) {
+	for _, ambient := range [][]string{
+		{"ENGRAM_SESSION", "run-one"},
+		{"LEGATO_EXECUTION_ID", "ex-one"},
+		{"CLAUDE_CODE_SESSION_ID", "claude-one"},
+		{"TMUX", "socket,123,0", "TMUX_PANE", "%1"},
+		nil,
+	} {
+		t.Run(fmt.Sprint(ambient), func(t *testing.T) {
+			h := newHarness(t).with(ambient...)
+			h.run("identity", "new", "fettle")
+			packet := h.run("boot", "--as", "fettle")
+			mustContain(t, packet, `engram recall "<query>" --as fettle`, "started 2026-10-07 09:00:00 UTC")
+			mustNotContain(t, packet, "&lt;", "&gt;")
+			opened := h.run("thread", "open", "Fix session identity")
+			id := strings.TrimSpace(strings.TrimPrefix(opened, "opened thread "))
+			mustContain(t, h.run("thread", "close", id, "Fixed"), "closed thread "+id)
+			mustNotContain(t, h.run("thread", "list"), "Fix session identity")
+			h.run("note", "Identity survived")
+			mustContain(t, h.run("boot"), "resumed", "Identity survived")
+		})
+	}
+}
+
+func TestInferredIdentityIsScopedFreshAndUnambiguous(t *testing.T) {
+	h := newHarness(t).with("ENGRAM_SESSION", "one")
+	for _, name := range []string{"ada", "grace"} {
+		h.run("identity", "new", name)
+	}
+	h.run("boot", "--as", "ada")
+	code, _, stderr := h.with("ENGRAM_SESSION", "two").exec("", "note", "wrong run")
+	if code != 2 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	h.run("boot", "--as", "grace")
+	code, _, stderr = h.exec("", "note", "ambiguous")
+	if code != 2 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	mustContain(t, stderr, "multiple identities", "--as")
+	h.with("ENGRAM_IDENTITY", "ada").run("note", "Environment wins")
+	h.with("ENGRAM_IDENTITY", "ada").run("note", "Flag wins", "--as", "grace")
+	ada := h.run("boot", "--as", "ada")
+	grace := h.run("boot", "--as", "grace")
+	mustContain(t, ada, "Environment wins")
+	mustNotContain(t, ada, "Flag wins")
+	mustContain(t, grace, "Flag wins")
+	mustNotContain(t, grace, "Environment wins")
+
+	weak := newHarness(t)
+	weak.run("identity", "new", "ada")
+	weak.run("boot", "--as", "ada")
+	weak.run("handoff", "Done")
+	code, _, stderr = weak.exec("", "note", "after handoff")
+	if code != 2 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	weak.run("boot", "--as", "ada")
+	weak.clock.advance(13 * time.Hour)
+	code, _, stderr = weak.exec("", "note", "too late")
+	if code != 2 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+}
+
+func TestIdentityFlagBeforeCommand(t *testing.T) {
+	for _, args := range [][]string{
+		{"--as", "ada", "thread", "open", "Global flag"},
+		{"--as=ada", "thread", "open", "Global flag"},
+		{"thread", "--as", "ada", "open", "Global flag"},
+		{"thread", "open", "--as", "ada", "Global flag"},
+		{"thread", "open", "Global flag", "--as", "ada"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			h := newHarness(t)
+			h.run("identity", "new", "ada")
+			h.run(args...)
+			mustContain(t, h.run("thread", "list", "--as", "ada"), "Global flag")
+		})
+	}
+	h := newHarness(t)
+	code, _, stderr := h.exec("", "--as")
+	if code != 2 {
+		t.Fatalf("exit %d", code)
+	}
+	mustContain(t, stderr, "--as", "name")
+}
+
+func TestWeakIdentityInferenceExcludesFinishedAndStaleMatches(t *testing.T) {
+	for _, finished := range []bool{false, true} {
+		t.Run(fmt.Sprint("handoff=", finished), func(t *testing.T) {
+			h := newHarness(t)
+			for _, name := range []string{"ada", "grace"} {
+				h.run("identity", "new", name)
+				h.run("boot", "--as", name)
+			}
+			code, _, stderr := h.exec("", "note", "ambiguous")
+			if code != 2 {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			mustContain(t, stderr, "multiple identities")
+			if finished {
+				h.run("handoff", "Done", "--as", "grace")
+			} else {
+				h.clock.advance(13 * time.Hour)
+				h.run("note", "Keep ada active", "--as", "ada")
+			}
+			h.run("note", "Unique match")
+			mustContain(t, h.run("boot", "--as", "ada"), "Unique match")
+			mustNotContain(t, h.run("boot", "--as", "grace"), "Unique match")
+		})
+	}
+}
+
+func TestBootLabelsUTCWhenLocalDateDiffers(t *testing.T) {
+	h := issued(t, "ada")
+	h.clock.now = time.Date(2026, 10, 26, 9, 54, 14, 0, time.FixedZone("AEDT", 11*60*60))
+	id, packet := h.boot()
+	if !strings.HasPrefix(id, "20261025-225414-") {
+		t.Fatalf("session id %s does not encode UTC", id)
+	}
+	mustContain(t, packet, "started 2026-10-25 22:54:14 UTC", "Session IDs use UTC")
+	h.clock.advance(2 * time.Minute)
+	mustContain(t, h.run("boot"), "resumed, started 2m ago", "started 2026-10-25 22:54:14 UTC")
+}
+
+func TestEditMemoryPreservesMetadataAndRefreshesRecall(t *testing.T) {
+	h := issued(t, "ada")
+	id := h.remember("Old zeppelin advice.", "--kind", "pitfall", "--scope", "global", "--source", "told", "--tags", "travel,design", "--anchor", "guide.go:42")
+	mustContain(t, h.run("recall", "zeppelin"), id)
+	files, err := filepath.Glob(filepath.Join(h.home, "identities", "ada", "memories", "*"+id+".md"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("memory file: %v %v", files, err)
+	}
+	before, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.clock.advance(time.Hour)
+	mustContain(t, h.run("edit", id, "New submarine advice."), "edited "+id)
+	shown := h.run("show", id)
+	mustContain(t, shown, "New submarine advice.", "pitfall", "global", "told", "travel, design", "guide.go:42", "2026-10-07T09:00:00Z")
+	mustNotContain(t, shown, "Old zeppelin advice.")
+	after, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.SplitN(string(before), "\n---\n", 2)[0] != strings.SplitN(string(after), "\n---\n", 2)[0] {
+		t.Fatalf("edit changed metadata:\nbefore: %s\nafter: %s", before, after)
+	}
+	mustContain(t, h.run("recall", "submarine"), id, "New submarine advice.")
+	mustContain(t, h.run("recall", "zeppelin"), "No memories match")
+	code, _, stderr := h.exec("Replacement from stdin.\nTwo lines.\n", "edit", id, "--file", "-")
+	if code != 0 {
+		t.Fatalf("edit stdin exit %d: %s", code, stderr)
+	}
+	mustContain(t, h.run("show", id), "Replacement from stdin.\nTwo lines.")
+}
+
+func TestRemoveMemoryRequiresConfirmationAndRefreshesRecall(t *testing.T) {
+	h := issued(t, "ada")
+	id := h.remember("Obsolete zeppelin advice.")
+	kept := h.remember("Keep submarine advice.")
+	mustContain(t, h.run("recall", "zeppelin"), id)
+	code, _, stderr := h.exec("", "remove", id)
+	if code != 2 {
+		t.Fatalf("remove without confirmation exit %d: %s", code, stderr)
+	}
+	mustContain(t, stderr, "--yes")
+	mustContain(t, h.run("show", id), "Obsolete zeppelin advice.")
+	mustContain(t, h.run("remove", id, "--yes"), "removed "+id)
+	code, _, stderr = h.exec("", "show", id)
+	if code != 1 {
+		t.Fatalf("show removed exit %d: %s", code, stderr)
+	}
+	mustContain(t, h.run("recall", "zeppelin"), "No memories match")
+	mustNotContain(t, h.run("memories"), id)
+	_, packet := h.boot()
+	mustNotContain(t, packet, "Obsolete zeppelin advice.")
+	mustContain(t, h.run("show", kept), "Keep submarine advice.")
+	code, _, stderr = h.exec("", "remove", id, "--yes")
+	if code != 1 {
+		t.Fatalf("second remove exit %d: %s", code, stderr)
+	}
+	mustContain(t, stderr, id, "not found")
+}
+
+func TestMemoryMutationsRejectInvalidInputAndOtherIdentities(t *testing.T) {
+	h := issued(t, "ada")
+	id := h.remember("Original memory.")
+	h.run("identity", "new", "grace")
+	thread := openedThread.FindStringSubmatch(h.run("thread", "open", "Keep thread"))[1]
+	for _, args := range [][]string{
+		{"edit", id}, {"edit", id, "   "}, {"edit", id, "text", "--file", "-"},
+		{"remove"}, {"remove", id, "extra", "--yes"},
+	} {
+		code, _, stderr := h.exec("", args...)
+		if code != 2 {
+			t.Fatalf("%v exit %d: %s", args, code, stderr)
+		}
+	}
+	for _, args := range [][]string{
+		{"edit", id, "Wrong identity", "--as", "grace"},
+		{"remove", id, "--yes", "--as", "grace"},
+		{"edit", thread, "Not a memory"}, {"remove", thread, "--yes"},
+	} {
+		code, _, stderr := h.exec("", args...)
+		if code != 1 {
+			t.Fatalf("%v exit %d: %s", args, code, stderr)
+		}
+		mustContain(t, stderr, "memory", "not found")
+	}
+	mustContain(t, h.run("show", id), "Original memory.")
+	mustContain(t, h.run("show", thread), "Keep thread", "open")
+}
+
+func TestEditHandWrittenMemoryWithFileInput(t *testing.T) {
+	h := issued(t, "ada")
+	path := filepath.Join(h.home, "identities", "ada", "memories", "manual.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("Original handwritten claim.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := h.run("show", "manual")
+	file := filepath.Join(t.TempDir(), "claim.txt")
+	if err := os.WriteFile(file, []byte("Corrected handwritten claim.\nWith detail.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.run("edit", "manual", "--file", file)
+	after := h.run("show", "manual")
+	mustContain(t, after, "Corrected handwritten claim.\nWith detail.", "fact", "global", "told", path)
+	// The loaded default creation time becomes explicit, not the edit time.
+	created := regexp.MustCompile(`created:\s+(\S+)`)
+	if created.FindStringSubmatch(before)[1] != created.FindStringSubmatch(after)[1] {
+		t.Fatalf("edit changed creation time:\n%s\n%s", before, after)
+	}
+	h.run("remove", "manual", "--yes")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("source still exists: %v", err)
+	}
 }

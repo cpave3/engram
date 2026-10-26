@@ -1,8 +1,8 @@
 // Package store is the file-backed source of truth for engram.
 //
-// Every record is a plain file under one identity's directory. Records are
-// written once, under a name no other writer will choose, so concurrent
-// sessions never contend for a lock. Nothing in this package touches SQLite.
+// Every record is a plain file under one identity's directory. New records
+// get unique names; edits replace files atomically. Nothing in this package
+// touches SQLite or takes a lock.
 package store
 
 import (

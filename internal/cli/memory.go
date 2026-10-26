@@ -70,6 +70,57 @@ func (a *app) remember(in input) error {
 	return nil
 }
 
+func (a *app) edit(in input) error {
+	if len(in.args) == 0 {
+		return usagef("edit needs a memory id and replacement claim")
+	}
+	claim, err := a.required(in.args[1:], in.str("file"), "replacement claim")
+	if err != nil {
+		return err
+	}
+	id, err := a.acting(in)
+	if err != nil {
+		return err
+	}
+	sess, _, err := a.session(id.Name, false)
+	if err != nil {
+		return err
+	}
+	if err := a.store.EditMemory(id.Name, in.args[0], claim); err != nil {
+		return err
+	}
+	if err := a.store.Append(id.Name, sess.ID, store.Event{At: a.env.Now(), Type: store.EventEdit, Ref: in.args[0]}); err != nil {
+		return err
+	}
+	a.printf("edited %s\n", in.args[0])
+	return nil
+}
+
+func (a *app) remove(in input) error {
+	if len(in.args) != 1 {
+		return usagef("remove needs exactly one memory id")
+	}
+	if !in.on("yes") {
+		return usagef("remove permanently deletes a memory; inspect it with `engram show <id>`, then pass --yes to confirm")
+	}
+	id, err := a.acting(in)
+	if err != nil {
+		return err
+	}
+	sess, _, err := a.session(id.Name, false)
+	if err != nil {
+		return err
+	}
+	if err := a.store.RemoveMemory(id.Name, in.args[0]); err != nil {
+		return err
+	}
+	if err := a.store.Append(id.Name, sess.ID, store.Event{At: a.env.Now(), Type: store.EventRemove, Ref: in.args[0]}); err != nil {
+		return err
+	}
+	a.printf("removed %s\n", in.args[0])
+	return nil
+}
+
 // draft checks one memory's fields and resolves its scope, before anything
 // is written.
 func (a *app) draft(claim, kind, scope, source, anchor string, tags []string) (store.Memory, error) {

@@ -32,7 +32,7 @@ type command struct {
 	run      func(*app, input) error
 }
 
-var asFlag = flagDef{name: "as", value: "<name>", help: "identity to act as (default: $ENGRAM_IDENTITY)"}
+var asFlag = flagDef{name: "as", value: "<name>", help: "identity to act as; also accepted before the command (default: $ENGRAM_IDENTITY, then matching session)"}
 
 func (c *command) allFlags() []flagDef {
 	if !c.acts {
@@ -125,6 +125,34 @@ var commandIndex = func() map[string]*command {
 	}
 	return index
 }()
+
+// Move identity flags ahead of command words into the command's flag parser.
+// Stop at the command itself so positional text and bare -- keep their meaning.
+func commandFlags(args []string) ([]string, error) {
+	var words, flags []string
+	for len(args) > 0 {
+		arg := args[0]
+		if arg == "--as" || arg == "-as" {
+			if len(args) < 2 {
+				return nil, usagef("--as needs an identity name; e.g. `engram --as ada boot`")
+			}
+			flags = append(flags, args[:2]...)
+			args = args[2:]
+			continue
+		}
+		if strings.HasPrefix(arg, "--as=") || strings.HasPrefix(arg, "-as=") {
+			flags = append(flags, arg)
+			args = args[1:]
+			continue
+		}
+		words = append(words, arg)
+		args = args[1:]
+		if commandIndex[strings.Join(words, " ")] != nil || len(subcommands(arg)) == 0 {
+			break
+		}
+	}
+	return append(append(words, flags...), args...), nil
+}
 
 // lookup finds the command named by the leading one or two arguments.
 func lookup(args []string) (*command, []string, error) {

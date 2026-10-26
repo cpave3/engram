@@ -32,6 +32,8 @@ const (
 	EventStart       = "start"
 	EventNote        = "note"
 	EventRemember    = "remember"
+	EventEdit        = "edit"
+	EventRemove      = "remove"
 	EventThreadOpen  = "thread_open"
 	EventThreadClose = "thread_close"
 	EventHandoff     = "handoff"

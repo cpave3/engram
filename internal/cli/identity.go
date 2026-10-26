@@ -79,14 +79,21 @@ func (a *app) identityShow(in input) error {
 	return nil
 }
 
-// acting resolves who a command acts as: --as, then ENGRAM_IDENTITY.
+// acting resolves --as, then ENGRAM_IDENTITY, then a unique ambient session.
 func (a *app) acting(in input) (store.Identity, error) {
 	name := in.str("as")
 	if name == "" {
 		name = a.env.Getenv("ENGRAM_IDENTITY")
 	}
 	if name == "" {
-		return store.Identity{}, usagef("no identity: pass --as <name> or set ENGRAM_IDENTITY%s", a.knownNames())
+		var err error
+		name, err = a.sessionIdentity()
+		if err != nil {
+			return store.Identity{}, err
+		}
+	}
+	if name == "" {
+		return store.Identity{}, usagef("no identity: boot with `engram boot --as <name>`, pass --as <name> on this command (e.g. `engram thread close <id> \"<resolution>\" --as <name>`), or set ENGRAM_IDENTITY%s", a.knownNames())
 	}
 	return a.knownIdentity(name)
 }

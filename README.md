@@ -12,8 +12,7 @@ Engram is a local CLI. It never calls a model.
 task build
 ./engram identity new ada "Specialist in SQLite concurrency for Go services."
 
-export ENGRAM_IDENTITY=ada
-./engram boot                       # who you are, what you know, where you left off
+./engram boot --as ada                       # who you are, what you know, where you left off
 ./engram note "sqlite-vec needs CGO"
 ./engram remember "Deferred transactions that upgrade fail with SQLITE_BUSY at once." \
     --kind pitfall --scope global --tags sqlite,locking
@@ -36,6 +35,8 @@ engram, and is generated from the same table that parses the flags.
 | `note` | Often. One line into the session journal. If the session ends without a handoff, its last notes stand in for one. |
 | `remember` | For one durable claim, with a kind, a scope and where it came from. `--batch` saves many from JSON lines. |
 | `memories` / `show` | To browse what is known without a query, and read one memory or thread in full. |
+| `edit <id> "<claim>"` | Replace a memory's text, preserving its id and metadata. Also takes `--file <path|->`. |
+| `remove <id> --yes` | Permanently delete a memory. Inspect with `show` first; there is no undo. |
 | `thread open` / `close` | For work that outlives the session. |
 | `self show` / `self write` | To read and replace the identity's own description of itself. |
 | `handoff` | Before finishing. |
@@ -45,9 +46,10 @@ engram, and is generated from the same table that parses the flags.
 - **An identity is an individual**, picked by you when you launch an agent.
   It may be live in several sessions at once; `boot` tells each about the
   others.
-- **Files are the source of truth.** Every record is a file written once
-  under a name no other writer picks, so concurrent sessions never wait on a
-  lock. You can read, grep, edit, add and delete them by hand.
+- **Files are the source of truth.** New records get unique filenames;
+  edits atomically replace a memory's file, preserving its metadata.
+  Concurrent edits to one memory are last-writer wins; do not edit and remove
+  it concurrently. You can also read, grep, edit, add and delete files by hand.
 - **The index is disposable.** SQLite holds only a full-text index, built
   from the files when `recall` runs. Writes never touch it. Delete `.index/`
   whenever you like.
@@ -90,6 +92,14 @@ from the environment: `ENGRAM_SESSION`, then `LEGATO_EXECUTION_ID`, then
 `CLAUDE_CODE_SESSION_ID`. Each names one agent run, and `boot` resumes it.
 Without any of them the tmux pane or working directory is used, and a session
 is resumed only if it was active in the last 12 hours and has no handoff.
+
+Identity selection is `--as <name>`, then `ENGRAM_IDENTITY`, then a unique
+matching session. After `engram boot --as ada`, later commands in the same
+run can omit `--as`. Weak pane/directory matches must be fresh and unfinished;
+ambiguous matches require an explicit identity. `--as` can appear before the
+command, between its words, or after its arguments. Boot prints explicit
+identity flags in its examples. Session IDs encode UTC; boot labels the
+absolute start time with its zone.
 
 A session started under Legato records `LEGATO_TASK_ID` and
 `LEGATO_EXECUTION_ID`, so Legato can set `ENGRAM_IDENTITY` at launch and add

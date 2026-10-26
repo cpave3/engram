@@ -12,7 +12,7 @@ var groups = []struct {
 }{
 	{"Identities", []string{"identity new", "identity list", "identity show"}},
 	{"Sessions", []string{"boot", "note", "handoff"}},
-	{"Memories", []string{"remember", "recall", "memories", "show"}},
+	{"Memories", []string{"remember", "recall", "memories", "show", "edit", "remove"}},
 	{"Unfinished work", []string{"thread open", "thread list", "thread close"}},
 	{"Yourself", []string{"self show", "self write"}},
 }
@@ -83,10 +83,14 @@ const overviewRest = `
 
 Acting as an identity:
   Every command except "identity" and "help" acts as one identity, named by
-  ENGRAM_IDENTITY or by --as <name>. engram identity list shows the names.
-  An agent's shell rarely keeps exported variables between calls, so if your
-  environment does not already set ENGRAM_IDENTITY, put it on each command:
-      ENGRAM_IDENTITY=ada engram boot
+  --as <name>, then ENGRAM_IDENTITY, then a uniquely matching session.
+  engram identity list shows the names. --as may precede the command:
+      engram --as ada boot
+  After boot, commands in the same agent run can omit --as. With no harness
+  session id, this uses the tmux pane or working directory and only a fresh,
+  unfinished session. Multiple matching identities require --as or
+  ENGRAM_IDENTITY; engram never guesses between them. Boot prints explicit
+  --as examples so they also work when there is no unique session match.
 
 Writing text:
   Flags may come before or after the text.
@@ -127,6 +131,8 @@ Session
   Any command starts a session when there is none, so boot is not required
   first, only useful first. Several sessions of one identity may run at once;
   boot shows the others under "Also active now".
+  Session ids encode the UTC start time, not local time. Boot also prints
+  the absolute start time with its UTC zone.
 
 Scope
   Where a memory or thread applies.
@@ -149,6 +155,8 @@ Source (remember --source): how far a claim was checked
 Note, memory, thread, handoff
   note      cheap and unsorted; belongs to one session's journal
   memory    one durable claim; found by recall in later sessions
+            edit <id> replaces its text, preserving metadata;
+            remove <id> --yes permanently deletes it (no undo)
   thread    unfinished work; shown at every boot until closed
   handoff   a session's last word; shown at the next boot
 

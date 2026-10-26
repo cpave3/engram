@@ -71,6 +71,10 @@ func homeDir(getenv func(string) string) string {
 }
 
 func (a *app) run(args []string) error {
+	args, err := commandFlags(args)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		a.printf("%s", overview())
 		return nil

@@ -48,14 +48,11 @@ func (a *app) session(identity string, forceNew bool) (sess store.Session, resum
 			return store.Session{}, false, err
 		}
 		if ok {
-			if strong {
-				return found, true, nil
-			}
-			events, err := a.store.Events(identity, found.ID)
+			usable, err := a.resumable(identity, found, strong)
 			if err != nil {
 				return store.Session{}, false, err
 			}
-			if last := lastEvent(events); last.Type != store.EventHandoff && a.env.Now().Sub(last.At) < weakKeyWindow {
+			if usable {
 				return found, true, nil
 			}
 		}
@@ -71,6 +68,52 @@ func (a *app) session(identity string, forceNew bool) (sess store.Session, resum
 		LegatoExecution: a.env.Getenv("LEGATO_EXECUTION_ID"),
 	})
 	return sess, false, err
+}
+
+func (a *app) resumable(identity string, sess store.Session, strong bool) (bool, error) {
+	if strong {
+		return true, nil
+	}
+	events, err := a.store.Events(identity, sess.ID)
+	if err != nil {
+		return false, err
+	}
+	last := lastEvent(events)
+	return last.Type != store.EventHandoff && a.env.Now().Sub(last.At) < weakKeyWindow, nil
+}
+
+// A place can host multiple agents. Never guess which identity owns a command
+// when the ambient key matches more than one resumable session.
+func (a *app) sessionIdentity() (string, error) {
+	key, strong := ambientKey(a.env.Getenv, a.env.Cwd)
+	identities, err := a.store.Identities()
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	for _, id := range identities {
+		sess, ok, err := a.store.SessionForKey(id.Name, key)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			continue
+		}
+		usable, err := a.resumable(id.Name, sess, strong)
+		if err != nil {
+			return "", err
+		}
+		if usable {
+			names = append(names, id.Name)
+		}
+	}
+	if len(names) > 1 {
+		return "", usagef("multiple identities match this session (%s): pass --as <name> (e.g. `engram note \"<text>\" --as %s`) or set ENGRAM_IDENTITY", strings.Join(names, ", "), names[0])
+	}
+	if len(names) == 1 {
+		return names[0], nil
+	}
+	return "", nil
 }
 
 func harness(getenv func(string) string) string {
