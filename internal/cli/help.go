@@ -11,10 +11,11 @@ var groups = []struct {
 	names []string
 }{
 	{"Identities", []string{"identity new", "identity list", "identity show"}},
-	{"Sessions", []string{"boot", "note", "handoff"}},
+	{"Sessions", []string{"boot", "note", "handoff", "session end"}},
 	{"Memories", []string{"remember", "recall", "memories", "show", "edit", "remove"}},
 	{"Unfinished work", []string{"thread open", "thread list", "thread close"}},
 	{"Yourself", []string{"self show", "self write"}},
+	{"Installation", []string{"where", "version"}},
 }
 
 // help answers `engram help [topic]`.
@@ -82,8 +83,9 @@ const overviewRest = `
   engram <command> --help   the same as engram help <command>
 
 Acting as an identity:
-  Every command except "identity" and "help" acts as one identity, named by
-  --as <name>, then ENGRAM_IDENTITY, then a uniquely matching session.
+  Every command except identity, where, version and help acts as one
+  identity, named by --as <name>, then ENGRAM_IDENTITY, then a uniquely
+  matching session.
   engram identity list shows the names. --as may precede the command:
       engram --as ada boot
   After boot, commands in the same agent run can omit --as. With no harness
@@ -111,7 +113,13 @@ Environment:
 Exit status:
   0  success
   1  the command failed; the reason is on standard error
-  2  the command was called wrongly; standard error says how to call it
+  2  the command was called wrongly, or no identity was named or found;
+     standard error says how to call it
+  3  the identity named does not exist
+  4  there is no store (see engram where)
+  5  identity new: an identity with that name already exists
+  A command run with --json that fails also prints
+  {"error": {"code": "...", "message": "..."}} on standard output.
 `
 
 const concepts = `engram concepts
@@ -125,12 +133,17 @@ Identity
 Session
   One agent run. You never pass a session id: engram finds your session from
   the environment, using ENGRAM_SESSION, then LEGATO_EXECUTION_ID, then
-  CLAUDE_CODE_SESSION_ID. Without any of those it uses the tmux pane or the
-  working directory, and resumes a session only if it was active in the last
-  12 hours and has no handoff.
+  CLAUDE_CODE_SESSION_ID. Each of these is a strong key: it names exactly one
+  agent run, and a run that sets the same value again, such as a restarted
+  agent, gets the same session back, even after a handoff or session end.
+  Without any of those it uses the tmux pane or the working directory, a
+  weak key, and resumes a session only if it was active in the last 12 hours
+  and has neither a handoff nor an end since. This order and behaviour are
+  stable; programs that launch agents may rely on them.
   Any command starts a session when there is none, so boot is not required
   first, only useful first. Several sessions of one identity may run at once;
-  boot shows the others under "Also active now".
+  boot shows the others under "Also active now" until they hand off, end with
+  engram session end, or go two hours without writing anything.
   Session ids encode the UTC start time, not local time. Boot also prints
   the absolute start time with its UTC zone.
 
@@ -145,6 +158,18 @@ Scope
   remember and thread open default to here (--scope repo). recall and memories
   cover here plus global; --all-scopes adds every other repository.
   Choose global only for what would still be true in another repository.
+
+  Stored scopes have a stable grammar, which programs may rely on:
+    global              everywhere
+    repo:<host>/<path>  a repository, from its origin remote: lowercase, with
+                        no scheme, user, port or .git suffix. SSH and HTTPS
+                        remotes of one repository agree.
+    dir:<path>          an absolute path: the main worktree of a repository,
+                        a bare repository or submodule's own directory, or a
+                        directory outside git
+  A place is a primary scope, which new records get, and every scope that
+  counts as here, primary first: repo: when there is an origin, then dir:.
+  engram where --dir <path> --json prints them.
 
 Kind (remember --kind)
 ` + kindsHelp + `

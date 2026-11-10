@@ -38,6 +38,9 @@ const (
 	EventThreadClose = "thread_close"
 	EventHandoff     = "handoff"
 	EventSelf        = "self"
+	// EventEnd marks a session finished without a handoff. A later event in
+	// the same session, after it is resumed, makes it live again.
+	EventEnd = "end"
 )
 
 // Event is one line of a session's append-only journal.

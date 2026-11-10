@@ -6,6 +6,19 @@ tasks:
     cmds:
       - go build -o engram ./cmd/engram/
 
+  release:
+    desc: "Build static release binaries into dist/ (usage: task release VERSION=v0.2.0)"
+    requires:
+      vars: [VERSION]
+    env:
+      CGO_ENABLED: "0"
+    cmds:
+      - for: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64]
+        cmd: >-
+          GOOS={{splitList "/" .ITEM | first}} GOARCH={{splitList "/" .ITEM | last}}
+          go build -trimpath -ldflags "-s -w -X github.com/cpave3/engram/internal/cli.Version={{.VERSION}}"
+          -o dist/engram-{{.VERSION}}-{{splitList "/" .ITEM | first}}-{{splitList "/" .ITEM | last}} ./cmd/engram/
+
   install:
     desc: Install engram to $GOPATH/bin
     cmds:

@@ -106,7 +106,7 @@ func interspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil, err
 			}
-			return nil, usageError{err.Error()}
+			return nil, usageError{msg: err.Error()}
 		}
 		rest := fs.Args()
 		if len(rest) == 0 {

@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
 
@@ -79,7 +80,13 @@ func (a *app) resumable(identity string, sess store.Session, strong bool) (bool,
 		return false, err
 	}
 	last := lastEvent(events)
-	return last.Type != store.EventHandoff && a.env.Now().Sub(last.At) < weakKeyWindow, nil
+	return !finished(last) && a.env.Now().Sub(last.At) < weakKeyWindow, nil
+}
+
+// finished reports whether a session whose last event is ev has stopped: it
+// wrote a handoff or was ended, and has done nothing since.
+func finished(ev store.Event) bool {
+	return ev.Type == store.EventHandoff || ev.Type == store.EventEnd
 }
 
 // A place can host multiple agents. Never guess which identity owns a command
@@ -170,5 +177,50 @@ func (a *app) handoff(in input) error {
 		return err
 	}
 	a.printf("handoff saved · session %s\n", sess.ID)
+	return nil
+}
+
+// sessionEnd marks this agent run's session finished without a handoff. It
+// never starts a session: there is nothing to end when the run has none.
+func (a *app) sessionEnd(in input) error {
+	if len(in.args) > 0 {
+		return usagef("session end takes no arguments")
+	}
+	id, err := a.acting(in)
+	if err != nil {
+		return err
+	}
+	key, strong := ambientKey(a.env.Getenv, a.env.Cwd)
+	sess, ok, err := a.store.SessionForKey(id.Name, key)
+	if err != nil {
+		return err
+	}
+	if ok && !strong {
+		// A weak key can name a place a stale session once ran in.
+		if ok, err = a.resumable(id.Name, sess, false); err != nil {
+			return err
+		}
+	}
+	if !ok {
+		return codedError{codeNoSession, exitError, fmt.Sprintf("%s has no session in this agent run to end", id.Name)}
+	}
+	events, err := a.store.Events(id.Name, sess.ID)
+	if err != nil {
+		return err
+	}
+	already := lastEvent(events).Type == store.EventEnd
+	if !already {
+		if err := a.store.Append(id.Name, sess.ID, store.Event{At: a.env.Now(), Type: store.EventEnd}); err != nil {
+			return err
+		}
+	}
+	if in.on("json") {
+		return a.writeJSON(map[string]any{"session_id": sess.ID, "identity": id.Name, "already_ended": already})
+	}
+	if already {
+		a.printf("session %s was already ended\n", sess.ID)
+		return nil
+	}
+	a.printf("ended session %s\n", sess.ID)
 	return nil
 }
