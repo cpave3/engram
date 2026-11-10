@@ -39,7 +39,13 @@ engram, and is generated from the same table that parses the flags.
 | `remove <id> --yes` | Permanently delete a memory. Inspect with `show` first; there is no undo. |
 | `thread open` / `close` | For work that outlives the session. |
 | `self show` / `self write` | To read and replace the identity's own description of itself. |
-| `handoff` | Before finishing. |
+| `handoff` | At natural stopping points and before finishing. Each replaces the last. |
+| `session end` | To mark a session finished without a handoff, so other sessions stop listing it as active. The same strong key still resumes it. |
+| `where` / `version` | No identity needed: the binary, its version, the store and where it came from, and with `--dir` a directory's scopes. |
+
+The boot packet ends with "Keeping yourself current", which says when to do
+each of these. It is never cut by `--budget`, and its heading is stable, so a
+launcher can point an agent at it instead of writing guidance of its own.
 
 ## Design rules
 
@@ -105,13 +111,46 @@ A session started under Legato records `LEGATO_TASK_ID` and
 `LEGATO_EXECUTION_ID`, so Legato can set `ENGRAM_IDENTITY` at launch and add
 the output of `engram boot` to the agent's prompt.
 
+`ENGRAM_SESSION`, `LEGATO_EXECUTION_ID` and `CLAUDE_CODE_SESSION_ID` are
+strong keys: a run that sets the same value again gets the same session back,
+even after `handoff` or `session end`. This, and the scope grammar in
+`engram help concepts` (`global`, `repo:<host>/<path>`, `dir:<path>`), are
+stable contracts.
+
+## For programs
+
+Commands that take `--json` print JSON, and on failure print
+`{"error": {"code": "...", "message": "..."}}` to standard output as well as
+the message to standard error. The exit status alone also tells the failures
+apart:
+
+| Exit | `code` | Meaning |
+|---|---|---|
+| 0 | | success |
+| 1 | `error`, `no_session` | anything else, such as an I/O failure |
+| 2 | `usage`, `no_identity` | called wrongly, or no identity named or found |
+| 3 | `unknown_identity` | the identity named does not exist |
+| 4 | `store_missing` | there is no store directory |
+| 5 | `identity_exists` | `identity new` for a name already issued |
+
+```bash
+engram where --dir . --json      # binary, version, store root and its source, scopes
+engram boot --as reeve --json    # {packet, session_id, state, identity, started}
+engram identity new reeve --file - --json < seed.md   # exit 5 if it already exists
+engram session end --as reeve
+```
+
 ## Development
 
 ```bash
 task test        # go test ./...
 task test:race
 task check       # build, test, vet, lint
+task release VERSION=v0.2.0   # static (CGO_ENABLED=0) binaries in dist/
 ```
+
+A release is a `vX.Y.Z` tag. `engram version` prints it, from the release
+build's `-ldflags` or from `go install …@vX.Y.Z`.
 
 Tests drive the CLI the way an agent does, against a temporary store.
 

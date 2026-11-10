@@ -70,8 +70,8 @@ func placeOf(cwd string) place {
 	if key := remoteKey(git(cwd, "remote", "get-url", "origin")); key != "" {
 		scopes = append(scopes, "repo:"+key)
 	}
-	if common := git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"); common != "" {
-		scopes = append(scopes, "dir:"+filepath.Dir(common))
+	if dir := repoDir(cwd); dir != "" {
+		scopes = append(scopes, "dir:"+dir)
 	} else {
 		if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
 			cwd = resolved
@@ -79,6 +79,28 @@ func placeOf(cwd string) place {
 		scopes = append(scopes, "dir:"+filepath.Clean(cwd))
 	}
 	return place{primary: scopes[0], scopes: scopes}
+}
+
+// repoDir is the path that names the repository cwd is in, or "" outside
+// one. It is the main worktree, which every linked worktree shares. A bare
+// repository has none, so it is named by its own directory. A submodule's git
+// directory sits inside its superproject's .git, so it is named by its
+// checkout instead.
+func repoDir(cwd string) string {
+	out := git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir", "--is-bare-repository")
+	common, bare, _ := strings.Cut(out, "\n")
+	switch {
+	case common == "":
+		return ""
+	case strings.TrimSpace(bare) == "true":
+		return common
+	case filepath.Base(common) == ".git":
+		return filepath.Dir(common)
+	}
+	if top := git(cwd, "rev-parse", "--show-toplevel"); top != "" {
+		return top
+	}
+	return filepath.Dir(common)
 }
 
 func git(cwd string, args ...string) string {

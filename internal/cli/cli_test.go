@@ -201,8 +201,8 @@ func TestCommandsSayHowToChooseAnIdentity(t *testing.T) {
 	mustContain(t, stderr, "--as", "ENGRAM_IDENTITY", "ada")
 
 	code, _, stderr = h.exec("", "recall", "anything", "--as", "grace")
-	if code != 1 {
-		t.Fatalf("exit %d, want 1", code)
+	if code != 3 {
+		t.Fatalf("exit %d, want 3 (unknown identity)", code)
 	}
 	mustContain(t, stderr, `unknown identity "grace"`, "ada")
 }
@@ -409,17 +409,17 @@ func TestBootFitsItsBudgetByCuttingTheLeastUrgentSectionsFirst(t *testing.T) {
 	second := h.with("LEGATO_EXECUTION_ID", "ex-two")
 
 	_, roomy := second.boot("--budget", "100000")
-	_, tight := second.boot("--budget", "450")
+	_, tight := second.boot("--budget", "600")
 
-	if len(tight) > 450*4 {
-		t.Fatalf("packet is %d characters, over a 450-token budget:\n%s", len(tight), tight)
+	if len(tight) > 600*4 {
+		t.Fatalf("packet is %d characters, over a 600-token budget:\n%s", len(tight), tight)
 	}
 	if len(roomy) <= len(tight) {
 		t.Fatalf("a roomy budget (%d chars) should hold more than a tight one (%d chars)", len(roomy), len(tight))
 	}
 	mustContain(t, roomy, "Fact 29 about write-ahead logging", strings.Repeat("A long handoff line about the reconcile loop.\n", 60))
 	// Who you are, how to use engram and unfinished work outlast history and the map.
-	mustContain(t, tight, "Specialist in SQLite concurrency", "engram recall", "Decide how vectors are stored", "cut to fit --budget 450")
+	mustContain(t, tight, "Specialist in SQLite concurrency", "engram recall", "Decide how vectors are stored", "cut to fit --budget 600", "## Keeping yourself current")
 	mustNotContain(t, tight, "Fact 29 about write-ahead logging")
 }
 
@@ -526,10 +526,11 @@ func TestParallelSessionsWriteAndSearchWithoutLosingAnything(t *testing.T) {
 // Every command an agent can run, as typed.
 var commandNames = []string{
 	"identity new", "identity list", "identity show",
-	"boot", "note", "handoff",
+	"boot", "note", "handoff", "session end",
 	"remember", "recall", "memories", "show", "edit", "remove",
 	"thread open", "thread list", "thread close",
 	"self show", "self write",
+	"where", "version",
 }
 
 func TestHelpOverviewShowsASessionAndListsEveryCommand(t *testing.T) {

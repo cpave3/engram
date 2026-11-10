@@ -22,8 +22,16 @@ func (a *app) identityNew(in input) error {
 	if !store.ValidIdentityName(name) {
 		return usagef("invalid identity name %q: use lowercase letters, digits and hyphens", name)
 	}
-	if err := a.store.CreateIdentity(name, seed, a.env.Now()); err != nil {
+	err = a.store.CreateIdentity(name, seed, a.env.Now())
+	if errors.Is(err, store.ErrExists) {
+		return codedError{codeIdentityExists, exitIdentityExists, fmt.Sprintf(
+			"identity %q already exists at %s; its seed is unchanged", name, a.store.IdentityDir(name))}
+	}
+	if err != nil {
 		return err
+	}
+	if in.on("json") {
+		return a.writeJSON(map[string]string{"identity": name, "dir": a.store.IdentityDir(name)})
 	}
 	a.printf("issued identity %s at %s\n", name, a.store.IdentityDir(name))
 	return nil
@@ -81,6 +89,9 @@ func (a *app) identityShow(in input) error {
 
 // acting resolves --as, then ENGRAM_IDENTITY, then a unique ambient session.
 func (a *app) acting(in input) (store.Identity, error) {
+	if err := a.requireStore(); err != nil {
+		return store.Identity{}, err
+	}
 	name := in.str("as")
 	if name == "" {
 		name = a.env.Getenv("ENGRAM_IDENTITY")
@@ -93,7 +104,7 @@ func (a *app) acting(in input) (store.Identity, error) {
 		}
 	}
 	if name == "" {
-		return store.Identity{}, usagef("no identity: boot with `engram boot --as <name>`, pass --as <name> on this command (e.g. `engram thread close <id> \"<resolution>\" --as <name>`), or set ENGRAM_IDENTITY%s", a.knownNames())
+		return store.Identity{}, usageError{code: codeNoIdentity, msg: fmt.Sprintf("no identity: boot with `engram boot --as <name>`, pass --as <name> on this command (e.g. `engram thread close <id> \"<resolution>\" --as <name>`), or set ENGRAM_IDENTITY%s", a.knownNames())}
 	}
 	return a.knownIdentity(name)
 }
@@ -102,7 +113,10 @@ func (a *app) acting(in input) (store.Identity, error) {
 func (a *app) knownIdentity(name string) (store.Identity, error) {
 	id, err := a.store.Identity(name)
 	if errors.Is(err, store.ErrNotFound) {
-		return store.Identity{}, fmt.Errorf("unknown identity %q%s", name, a.knownNames())
+		if err := a.requireStore(); err != nil {
+			return store.Identity{}, err
+		}
+		return store.Identity{}, unknownIdentityf("unknown identity %q%s", name, a.knownNames())
 	}
 	return id, err
 }

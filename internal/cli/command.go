@@ -41,6 +41,15 @@ func (c *command) allFlags() []flagDef {
 	return append(c.flags[:len(c.flags):len(c.flags)], asFlag)
 }
 
+func (c *command) flagNamed(name string) (flagDef, bool) {
+	for _, f := range c.allFlags() {
+		if f.name == name {
+			return f, true
+		}
+	}
+	return flagDef{}, false
+}
+
 // input is a command's parsed arguments.
 type input struct {
 	args     []string
@@ -106,7 +115,7 @@ func interspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil, err
 			}
-			return nil, usageError{err.Error()}
+			return nil, usageError{msg: err.Error()}
 		}
 		rest := fs.Args()
 		if len(rest) == 0 {
