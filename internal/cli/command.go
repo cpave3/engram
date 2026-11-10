@@ -41,6 +41,15 @@ func (c *command) allFlags() []flagDef {
 	return append(c.flags[:len(c.flags):len(c.flags)], asFlag)
 }
 
+func (c *command) flagNamed(name string) (flagDef, bool) {
+	for _, f := range c.allFlags() {
+		if f.name == name {
+			return f, true
+		}
+	}
+	return flagDef{}, false
+}
+
 // input is a command's parsed arguments.
 type input struct {
 	args     []string

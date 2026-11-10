@@ -195,18 +195,17 @@ func (a *app) sessionEnd(in input) error {
 	if err != nil {
 		return err
 	}
-	if ok && !strong {
-		// A weak key can name a place a stale session once ran in.
-		if ok, err = a.resumable(id.Name, sess, false); err != nil {
+	var events []store.Event
+	if ok {
+		if events, err = a.store.Events(id.Name, sess.ID); err != nil {
 			return err
 		}
+		// A weak key can name a place a stale session once ran in. A fresh one
+		// that already handed off or ended is still this run's to end.
+		ok = strong || a.env.Now().Sub(lastEvent(events).At) < weakKeyWindow
 	}
 	if !ok {
 		return codedError{codeNoSession, exitError, fmt.Sprintf("%s has no session in this agent run to end", id.Name)}
-	}
-	events, err := a.store.Events(id.Name, sess.ID)
-	if err != nil {
-		return err
 	}
 	already := lastEvent(events).Type == store.EventEnd
 	if !already {

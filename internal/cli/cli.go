@@ -181,6 +181,10 @@ func (a *app) run(args []string) error {
 	if err != nil {
 		return err
 	}
+	if _, ok := cmd.flagNamed("json"); ok {
+		// Known before parsing, so a malformed flag is also reported as JSON.
+		a.jsonOut = wantsJSON(rest)
+	}
 	in, err := cmd.parse(rest)
 	if errors.Is(err, flag.ErrHelp) {
 		a.printf("%s", cmd.help())
@@ -238,4 +242,20 @@ func (a *app) required(positional []string, file, what string) (string, error) {
 		return "", usagef("missing %s: pass it as an argument, or with --file <path|-> to read a file or standard input", what)
 	}
 	return text, err
+}
+
+// wantsJSON reports whether args turn on --json, before a bare --.
+func wantsJSON(args []string) bool {
+	on := false
+	for _, arg := range args {
+		switch arg {
+		case "--":
+			return on
+		case "--json", "-json", "--json=true", "-json=true":
+			on = true
+		case "--json=false", "-json=false":
+			on = false
+		}
+	}
+	return on
 }

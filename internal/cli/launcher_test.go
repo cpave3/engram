@@ -236,9 +236,36 @@ func TestSessionEndNeverStartsASessionAndIsIdempotent(t *testing.T) {
 func TestSessionFoundByPlaceIsNotResumedAfterItEnds(t *testing.T) {
 	h := issued(t, "ada").with("TMUX", "socket,123,0", "TMUX_PANE", "%3")
 	first, _ := h.boot("--as", "ada")
-	h.run("session", "end", "--as", "ada")
+	h.run("handoff", "Paused.", "--as", "ada")
+	mustContain(t, h.run("session", "end", "--as", "ada"), "ended session "+first)
+	mustContain(t, h.run("session", "end", "--as", "ada"), "already ended")
 	if next, _ := h.boot("--as", "ada"); next == first {
 		t.Fatalf("a pane's ended session %s was resumed", first)
+	}
+
+	h.clock.advance(13 * time.Hour)
+	stale := h.with("TMUX_PANE", "%3")
+	stale.run("boot", "--as", "ada")
+	h.clock.advance(13 * time.Hour)
+	if code, _, _ := stale.exec("", "session", "end", "--as", "ada"); code != 1 {
+		t.Fatalf("ending a stale pane session: exit %d, want 1 (no_session)", code)
+	}
+}
+
+func TestMalformedFlagsOnAJSONCommandFailAsJSON(t *testing.T) {
+	h := issued(t, "ada")
+	for _, args := range [][]string{
+		{"boot", "--json", "--budget"},
+		{"boot", "--json", "--unknown"},
+		{"boot", "--unknown", "--json"},
+	} {
+		code, out, _ := h.exec("", args...)
+		if got := decode[jsonError](t, out); code != 2 || got.Error.Code != "usage" {
+			t.Fatalf("%v: exit %d, %+v; want exit 2, code usage", args, code, got)
+		}
+	}
+	if code, out, _ := h.exec("", "boot", "--unknown"); code != 2 || out != "" {
+		t.Fatalf("without --json: exit %d, stdout %q", code, out)
 	}
 }
 
